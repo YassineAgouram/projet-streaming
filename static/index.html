@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>VisionEdge — AI Video Proxy</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&family=Space+Grotesk:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+  /* ── Reset & Base ─────────────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg0:     #080c10;
+    --bg1:     #0d1117;
+    --bg2:     #161b22;
+    --bg3:     #21262d;
+    --border:  #30363d;
+    --text0:   #e6edf3;
+    --text1:   #8b949e;
+    --text2:   #6e7681;
+    --green:   #00ff88;
+    --cyan:    #00d4ff;
+    --amber:   #ffb300;
+    --red:     #ff4757;
+    --purple:  #b388ff;
+    --mono:    'JetBrains Mono', monospace;
+    --sans:    'Space Grotesk', sans-serif;
+  }
+
+  html, body {
+    height: 100%;
+    background: var(--bg0);
+    color: var(--text0);
+    font-family: var(--sans);
+    font-size: 14px;
+    overflow: hidden;
+  }
+
+  /* ── Layout ───────────────────────────────────────────────────────── */
+  .app {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    grid-template-rows: 52px 1fr;
+    height: 100vh;
+    gap: 0;
+  }
+
+  /* ── Topbar ───────────────────────────────────────────────────────── */
+  .topbar {
+    grid-column: 1 / -1;
+    background: var(--bg1);
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 20px;
+  }
+
+  .logo {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: -0.5px;
+    color: var(--green);
+  }
+  .logo span { color: var(--text1); font-weight: 300; }
+
+  .topbar-status {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text1);
+  }
+  .dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--border);
+    transition: background 0.3s;
+  }
+  .dot.live  { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+  .dot.error { background: var(--red); }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
+
+  .topbar-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .btn {
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg2);
+    color: var(--text0);
+    cursor: pointer;
+    transition: all 0.15s;
+    letter-spacing: 0.3px;
+  }
+  .btn:hover { background: var(--bg3); border-color: var(--text2); }
+  .btn.primary { border-color: var(--green); color: var(--green); }
+  .btn.primary:hover { background: rgba(0,255,136,0.08); }
+  .btn.active { background: rgba(0,255,136,0.12); border-color: var(--green); color: var(--green); }
+  .btn.danger  { border-color: var(--red); color: var(--red); }
+  .btn.danger:hover { background: rgba(255,71,87,0.08); }
+
+  /* ── Video Panel ──────────────────────────────────────────────────── */
+  .video-panel {
+    position: relative;
+    background: var(--bg0);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  video {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .video-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    pointer-events: none;
+    transition: opacity 0.4s;
+  }
+  .video-overlay.hidden { opacity: 0; }
+
+  .video-idle-icon {
+    width: 64px; height: 64px;
+    border: 2px solid var(--border);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text2);
+    font-size: 24px;
+  }
+  .video-idle-text {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text2);
+    text-align: center;
+    line-height: 1.8;
+  }
+
+  /* Badge latence */
+  .latency-badge {
+    position: absolute;
+    top: 12px; left: 12px;
+    background: rgba(0,0,0,0.75);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--green);
+    display: none;
+  }
+  .latency-badge.visible { display: block; }
+
+  /* ── Sidebar ──────────────────────────────────────────────────────── */
+  .sidebar {
+    background: var(--bg1);
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .sidebar::-webkit-scrollbar { width: 4px; }
+  .sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .section {
+    border-bottom: 1px solid var(--border);
+    padding: 16px;
+  }
+
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+
+  .section-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 500;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--text1);
+  }
+
+  .section-badge {
+    font-family: var(--mono);
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .badge-eco    { border-color: var(--cyan);   color: var(--cyan); }
+  .badge-normal { border-color: var(--green);  color: var(--green); }
+  .badge-high   { border-color: var(--amber);  color: var(--amber); }
+  .badge-on     { border-color: var(--green);  color: var(--green); }
+  .badge-off    { border-color: var(--border); color: var(--text2); }
+
+  /* Metrics grid */
+  .metrics {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .metric {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+  }
+  .metric-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text2);
+    margin-bottom: 4px;
+  }
+  .metric-value {
+    font-family: var(--mono);
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text0);
+    line-height: 1;
+  }
+  .metric-unit {
+    font-size: 10px;
+    color: var(--text1);
+    font-weight: 300;
+    margin-left: 2px;
+  }
+
+  /* Gauge bar */
+  .gauge {
+    margin-top: 8px;
+  }
+  .gauge-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--text2);
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 4px;
+  }
+  .gauge-bar {
+    height: 3px;
+    background: var(--bg3);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .gauge-fill {
+    height: 100%;
+    border-radius: 2px;
+    background: var(--green);
+    transition: width 0.4s ease;
+  }
+
+  /* Toggle switch */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .toggle-label {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text1);
+  }
+  .toggle {
+    position: relative;
+    width: 36px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-slider {
+    position: absolute;
+    inset: 0;
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .toggle-slider::after {
+    content: '';
+    position: absolute;
+    top: 2px; left: 2px;
+    width: 14px; height: 14px;
+    background: var(--text2);
+    border-radius: 50%;
+    transition: all 0.2s;
+  }
+  .toggle input:checked + .toggle-slider { background: rgba(0,255,136,0.15); border-color: var(--green); }
+  .toggle input:checked + .toggle-slider::after { left: 18px; background: var(--green); }
+
+  /* Select */
+  select {
+    font-family: var(--mono);
+    font-size: 11px;
+    background: var(--bg2);
+    color: var(--text0);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+    cursor: pointer;
+    outline: none;
+    width: 100%;
+    margin-top: 6px;
+  }
+
+  /* Latency chart */
+  .chart-wrap {
+    position: relative;
+    height: 80px;
+    margin-top: 8px;
+  }
+  canvas.latency-chart {
+    width: 100%;
+    height: 80px;
+    display: block;
+  }
+
+  /* Log terminal */
+  .terminal {
+    background: var(--bg0);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px;
+    height: 130px;
+    overflow-y: auto;
+    font-family: var(--mono);
+    font-size: 10px;
+    line-height: 1.7;
+  }
+  .terminal::-webkit-scrollbar { width: 3px; }
+  .terminal::-webkit-scrollbar-thumb { background: var(--border); }
+  .log-line { color: var(--text2); }
+  .log-line.info  { color: var(--green); }
+  .log-line.warn  { color: var(--amber); }
+  .log-line.error { color: var(--red); }
+
+  /* Color picker row */
+  .color-row {
+    display: flex;
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .color-dot {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: border-color 0.15s;
+  }
+  .color-dot.selected, .color-dot:hover { border-color: var(--text0); }
+
+  /* Latency summary */
+  .perf-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin-top: 8px;
+  }
+  .perf-cell {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    text-align: center;
+  }
+  .perf-cell-label {
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--text2);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .perf-cell-val {
+    font-family: var(--mono);
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--cyan);
+    margin-top: 2px;
+  }
+
+  /* Responsive scrollbars for sidebar */
+  @media (max-height: 700px) {
+    .sidebar { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── Topbar ─────────────────────────────────────────────────────── -->
+  <header class="topbar">
+    <div class="logo">VISION<span>EDGE</span></div>
+    <div class="topbar-status">
+      <div class="dot" id="conn-dot"></div>
+      <span id="conn-label">Déconnecté</span>
+    </div>
+    <div class="topbar-right">
+      <button class="btn primary" id="btn-start">▶ Démarrer</button>
+      <button class="btn danger"  id="btn-stop" style="display:none">■ Arrêter</button>
+    </div>
+  </header>
+
+  <!-- ── Video Panel ─────────────────────────────────────────────────── -->
+  <main class="video-panel">
+    <video id="remoteVideo" autoplay playsinline muted></video>
+
+    <div class="video-overlay" id="idle-overlay">
+      <div class="video-idle-icon">◎</div>
+      <div class="video-idle-text">
+        Cliquez sur <strong>Démarrer</strong> pour lancer<br>
+        le flux WebRTC → AI Proxy → Peer
+      </div>
+    </div>
+
+    <div class="latency-badge" id="lat-badge">— ms</div>
+  </main>
+
+  <!-- ── Sidebar ─────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+
+    <!-- Module A : Bandwidth -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">[A] Bandwidth</span>
+        <span class="section-badge badge-normal" id="bw-badge">NORMAL</span>
+      </div>
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-label">Motion score</div>
+          <div class="metric-value" id="m-score">0.0</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Target FPS</div>
+          <div class="metric-value" id="m-fps">30<span class="metric-unit">fps</span></div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Scale</div>
+          <div class="metric-value" id="m-scale">1.0<span class="metric-unit">x</span></div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">BW saved</div>
+          <div class="metric-value" id="m-saved">0<span class="metric-unit">%</span></div>
+        </div>
+      </div>
+      <div class="gauge" style="margin-top:12px">
+        <div class="gauge-label">
+          <span>Mouvement</span>
+          <span id="gauge-val">0%</span>
+        </div>
+        <div class="gauge-bar">
+          <div class="gauge-fill" id="motion-gauge" style="width:0%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Module B : Privacy -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">[B] Privacy Mask</span>
+        <span class="section-badge badge-on" id="prv-badge">ON</span>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Activer le masquage</span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-privacy" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Visages détectés</span>
+        <span class="section-badge" id="face-count" style="color:var(--amber)">0</span>
+      </div>
+      <div>
+        <div class="toggle-label" style="margin-bottom:4px">Mode de masquage</div>
+        <select id="mask-mode">
+          <option value="blur">Flou Gaussien (RGPD)</option>
+          <option value="black">Rectangle noir</option>
+          <option value="pixel">Pixelisation</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Module C : AR Drawing -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">[C] AR Drawing</span>
+        <span class="section-badge badge-on" id="ar-badge">ON</span>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Activer le dessin</span>
+        <label class="toggle">
+          <input type="checkbox" id="toggle-ar" checked>
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+      <div class="toggle-row">
+        <span class="toggle-label">Tracés effectués</span>
+        <span class="section-badge" id="stroke-count" style="color:var(--purple)">0</span>
+      </div>
+      <div class="toggle-label">Couleur du pinceau</div>
+      <div class="color-row" id="color-picker">
+        <div class="color-dot selected" data-bgr="0,255,136"  style="background:#00ff88"></div>
+        <div class="color-dot" data-bgr="0,212,255"  style="background:#00d4ff"></div>
+        <div class="color-dot" data-bgr="180,136,255" style="background:#b488ff"></div>
+        <div class="color-dot" data-bgr="57,255,255"  style="background:#ffb339"></div>
+        <div class="color-dot" data-bgr="87,71,255"   style="background:#ff4757"></div>
+        <div class="color-dot" data-bgr="255,255,255" style="background:#ffffff"></div>
+      </div>
+      <button class="btn" id="btn-clear" style="width:100%;margin-top:10px;font-size:10px">
+        ✕ Effacer le dessin
+      </button>
+    </div>
+
+    <!-- Latence & Perfs -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Latence pipeline</span>
+      </div>
+      <div class="perf-grid">
+        <div class="perf-cell">
+          <div class="perf-cell-label">P50</div>
+          <div class="perf-cell-val" id="p50">—</div>
+        </div>
+        <div class="perf-cell">
+          <div class="perf-cell-label">P95</div>
+          <div class="perf-cell-val" id="p95">—</div>
+        </div>
+        <div class="perf-cell">
+          <div class="perf-cell-label">P99</div>
+          <div class="perf-cell-val" id="p99">—</div>
+        </div>
+      </div>
+      <div class="chart-wrap" style="margin-top:12px">
+        <canvas id="latency-chart" width="308" height="80"></canvas>
+      </div>
+    </div>
+
+    <!-- Terminal log -->
+    <div class="section">
+      <div class="section-header">
+        <span class="section-title">Logs</span>
+      </div>
+      <div class="terminal" id="terminal"></div>
+    </div>
+
+  </aside>
+</div>
+
+<script>
+/* ─── State ──────────────────────────────────────────────────────────── */
+let pc        = null;
+let localStream = null;
+let ws        = null;
+let connected = false;
+const latHistory = [];
+const MAX_HIST   = 60;
+
+/* ─── DOM refs ────────────────────────────────────────────────────────── */
+const $ = id => document.getElementById(id);
+const remoteVideo   = $('remoteVideo');
+const idleOverlay   = $('idle-overlay');
+const connDot       = $('conn-dot');
+const connLabel     = $('conn-label');
+const latBadge      = $('lat-badge');
+const termEl        = $('terminal');
+const chartCanvas   = $('latency-chart');
+const ctx           = chartCanvas.getContext('2d');
+
+/* ─── Log ─────────────────────────────────────────────────────────────── */
+function log(msg, type = 'log') {
+  const ts   = new Date().toLocaleTimeString('fr-FR', {hour12:false});
+  const line = document.createElement('div');
+  line.className = `log-line ${type}`;
+  line.textContent = `[${ts}] ${msg}`;
+  termEl.appendChild(line);
+  if (termEl.children.length > 80)
+    termEl.removeChild(termEl.firstChild);
+  termEl.scrollTop = termEl.scrollHeight;
+}
+
+/* ─── WebRTC ──────────────────────────────────────────────────────────── */
+async function startStream() {
+  log('Demande accès caméra…', 'info');
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({
+      video: { width:1280, height:720, frameRate:30 },
+      audio: false,
+    });
+  } catch(e) {
+    log(`Erreur caméra : ${e.message}`, 'error');
+    return;
+  }
+
+  pc = new RTCPeerConnection({
+    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }],
+  });
+
+  pc.ontrack = e => {
+    if (e.streams[0]) {
+      remoteVideo.srcObject = e.streams[0];
+      idleOverlay.classList.add('hidden');
+      latBadge.classList.add('visible');
+      log('Stream AI reçu ✓', 'info');
+    }
+  };
+
+  pc.onconnectionstatechange = () => {
+    const s = pc.connectionState;
+    log(`WebRTC state → ${s}`);
+    if (s === 'connected') {
+      setStatus('live', 'Connecté — AI Proxy actif');
+      connected = true;
+      openWS();
+    } else if (['failed','closed','disconnected'].includes(s)) {
+      setStatus('', 'Déconnecté');
+      connected = false;
+    }
+  };
+
+  for (const track of localStream.getTracks())
+    pc.addTrack(track, localStream);
+
+  const offer  = await pc.createOffer();
+  await pc.setLocalDescription(offer);
+
+  log('Envoi SDP offer au serveur…');
+  const resp = await fetch('/offer', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json' },
+    body: JSON.stringify({ sdp: offer.sdp, type: offer.type }),
+  });
+
+  if (!resp.ok) { log('Erreur serveur', 'error'); return; }
+
+  const answer = await resp.json();
+  await pc.setRemoteDescription(new RTCSessionDescription(answer));
+  log('SDP answer reçu ✓', 'info');
+
+  $('btn-start').style.display = 'none';
+  $('btn-stop').style.display  = 'block';
+}
+
+async function stopStream() {
+  ws?.close(); ws = null;
+  pc?.close(); pc = null;
+  localStream?.getTracks().forEach(t => t.stop());
+  localStream = null;
+  remoteVideo.srcObject = null;
+  idleOverlay.classList.remove('hidden');
+  latBadge.classList.remove('visible');
+  setStatus('', 'Déconnecté');
+  connected = false;
+  $('btn-start').style.display = 'block';
+  $('btn-stop').style.display  = 'none';
+  log('Session terminée');
+}
+
+/* ─── WebSocket stats ─────────────────────────────────────────────────── */
+function openWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/stats`);
+  ws.onmessage = e => updateDashboard(JSON.parse(e.data));
+  ws.onerror   = () => log('WS erreur', 'error');
+  ws.onclose   = () => log('WS fermé');
+}
+
+/* ─── Dashboard update ────────────────────────────────────────────────── */
+function updateDashboard(d) {
+  if (!d || !d.bandwidth) return;
+  const bw  = d.bandwidth;
+  const prv = d.privacy;
+  const ar  = d.ar;
+  const lat = d.latency;
+
+  /* Module A */
+  const mode = bw.bandwidth_mode || 'NORMAL';
+  const bwBadge = $('bw-badge');
+  bwBadge.textContent = mode;
+  bwBadge.className   = `section-badge badge-${mode.toLowerCase()}`;
+  $('m-score').textContent = (bw.motion_score || 0).toFixed(1);
+  $('m-fps').innerHTML    = `${bw.target_fps || 30}<span class="metric-unit">fps</span>`;
+  $('m-scale').innerHTML  = `${(bw.scale_factor||1).toFixed(2)}<span class="metric-unit">x</span>`;
+  const saved = bw.saved_bytes_pct || 0;
+  $('m-saved').innerHTML  = `${saved}<span class="metric-unit">%</span>`;
+  const gaugeW = Math.min(100, (bw.motion_score || 0) / 30 * 100);
+  $('motion-gauge').style.width = `${gaugeW}%`;
+  $('gauge-val').textContent    = `${gaugeW.toFixed(0)}%`;
+  const gf = $('motion-gauge');
+  gf.style.background = gaugeW > 60 ? 'var(--red)' :
+                        gaugeW > 30 ? 'var(--amber)' : 'var(--green)';
+
+  /* Module B */
+  const facesN = prv?.faces_detected || 0;
+  $('face-count').textContent = facesN;
+  $('prv-badge').textContent  = prv?.enabled ? 'ON' : 'OFF';
+  $('prv-badge').className    = `section-badge ${prv?.enabled ? 'badge-on' : 'badge-off'}`;
+
+  /* Module C */
+  $('stroke-count').textContent = ar?.stroke_count || 0;
+  $('ar-badge').textContent     = ar?.enabled ? 'ON' : 'OFF';
+  $('ar-badge').className       = `section-badge ${ar?.enabled ? 'badge-on' : 'badge-off'}`;
+
+  /* Latence */
+  if (lat && lat.p50_ms) {
+    $('p50').textContent = `${lat.p50_ms}ms`;
+    $('p95').textContent = `${lat.p95_ms}ms`;
+    $('p99').textContent = `${lat.p99_ms}ms`;
+    latBadge.textContent = `${lat.p95_ms} ms p95`;
+
+    latHistory.push(d.total_ms || lat.p50_ms);
+    if (latHistory.length > MAX_HIST) latHistory.shift();
+    drawChart();
+  }
+}
+
+/* ─── Latency chart ───────────────────────────────────────────────────── */
+function drawChart() {
+  const W = chartCanvas.width, H = chartCanvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  if (latHistory.length < 2) return;
+
+  const max = Math.max(40, ...latHistory);
+  const step = W / (MAX_HIST - 1);
+
+  /* 33ms line */
+  const y33 = H - (33 / max * H);
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(255,71,87,0.4)';
+  ctx.lineWidth   = 1;
+  ctx.setLineDash([4, 4]);
+  ctx.moveTo(0, y33);
+  ctx.lineTo(W, y33);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  /* gradient fill */
+  const grad = ctx.createLinearGradient(0, 0, 0, H);
+  grad.addColorStop(0, 'rgba(0,212,255,0.25)');
+  grad.addColorStop(1, 'rgba(0,212,255,0)');
+  ctx.beginPath();
+  latHistory.forEach((v, i) => {
+    const x = i * step;
+    const y = H - (v / max * H);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo(latHistory.length * step, H);
+  ctx.lineTo(0, H);
+  ctx.closePath();
+  ctx.fillStyle = grad;
+  ctx.fill();
+
+  /* line */
+  ctx.beginPath();
+  ctx.strokeStyle = 'rgba(0,212,255,0.9)';
+  ctx.lineWidth   = 1.5;
+  ctx.lineJoin    = 'round';
+  latHistory.forEach((v, i) => {
+    const x = i * step;
+    const y = H - (v / max * H);
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+}
+
+/* ─── API control ─────────────────────────────────────────────────────── */
+async function sendControl(key, value) {
+  await fetch('/control', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json' },
+    body: JSON.stringify({ key, value }),
+  });
+}
+
+/* ─── Status helpers ──────────────────────────────────────────────────── */
+function setStatus(state, label) {
+  connDot.className   = `dot ${state}`;
+  connLabel.textContent = label;
+}
+
+/* ─── Event listeners ─────────────────────────────────────────────────── */
+$('btn-start').onclick = startStream;
+$('btn-stop').onclick  = stopStream;
+
+$('toggle-privacy').onchange = e => {
+  sendControl('privacy_enabled', e.target.checked);
+  log(`Privacy masking → ${e.target.checked ? 'ON' : 'OFF'}`);
+};
+
+$('toggle-ar').onchange = e => {
+  sendControl('ar_enabled', e.target.checked);
+  log(`AR drawing → ${e.target.checked ? 'ON' : 'OFF'}`);
+};
+
+$('mask-mode').onchange = e => {
+  sendControl('mask_mode', e.target.value);
+  log(`Mask mode → ${e.target.value}`);
+};
+
+$('btn-clear').onclick = async () => {
+  await fetch('/canvas/clear', { method:'POST' });
+  log('Canvas AR effacé');
+};
+
+document.querySelectorAll('.color-dot').forEach(dot => {
+  dot.onclick = async () => {
+    document.querySelectorAll('.color-dot').forEach(d => d.classList.remove('selected'));
+    dot.classList.add('selected');
+    await sendControl('ar_color', dot.dataset.bgr);
+    log(`Couleur pinceau → ${dot.dataset.bgr}`);
+  };
+});
+
+log('VisionEdge initialisé — prêt', 'info');
+log('Cliquez sur ▶ Démarrer pour lancer le flux');
+</script>
+</body>
+</html>
